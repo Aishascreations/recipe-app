@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard — Recipely</title>
+  <link rel="stylesheet" href="../css/style.css" />
+</head>
+<body>
+
+<div class="app-layout">
+  <nav class="navbar">
+    <span class="nav-logo">🍽 recipely</span>
+    <div class="nav-links">
+      <span class="nav-link active" onclick="go('dashboard.html')">my recipes</span>
+      <span class="nav-link" onclick="go('add-recipe.html')">+ add recipe</span>
+      <span class="nav-link" onclick="go('ai.html')">✨ AI suggest</span>
+      <span class="nav-user" id="nav-user"></span>
+      <button class="btn-secondary" onclick="logout()">logout</button>
+    </div>
+  </nav>
+
+  <div class="main">
+    <h1 class="page-title">my recipes</h1>
+    <p class="page-sub" id="recipe-count">loading...</p>
+
+    <div class="filters">
+      <input type="text" id="search" placeholder="search recipes..." oninput="filterRecipes()" />
+      <select id="filter-cuisine" onchange="filterRecipes()">
+        <option value="">all cuisines</option>
+        <option>Italian</option>
+        <option>Mexican</option>
+        <option>Asian</option>
+        <option>Mediterranean</option>
+        <option>American</option>
+        <option>Indian</option>
+        <option>Other</option>
+      </select>
+      <select id="filter-diet" onchange="filterRecipes()">
+        <option value="">all diets</option>
+        <option>vegetarian</option>
+        <option>vegan</option>
+        <option>gluten-free</option>
+        <option>dairy-free</option>
+        <option>keto</option>
+      </select>
+      <button class="btn-primary" onclick="go('add-recipe.html')">+ add recipe</button>
+    </div>
+
+    <div class="grid" id="recipe-grid">
+      <div class="loading">loading your recipes...</div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  const API = 'http://localhost:3001/api';
+  let allRecipes = [];
+
+  // Auth guard
+  const token = localStorage.getItem('token');
+  if (!token) window.location.href = '../index.html';
+
+  const user = JSON.parse(localStorage.getItem('user') || '{}');
+  document.getElementById('nav-user').textContent = `hi, ${user.name || ''}`;
+
+  function go(page) { window.location.href = page; }
+
+  function logout() {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    window.location.href = '../index.html';
+  }
+
+  async function loadRecipes() {
+    try {
+      const res = await fetch(`${API}/recipes`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.status === 401) { logout(); return; }
+      allRecipes = await res.json();
+      renderRecipes(allRecipes);
+    } catch {
+      document.getElementById('recipe-grid').innerHTML =
+        '<div class="loading">⚠ could not load recipes. is the server running?</div>';
+    }
+  }
+
+  function filterRecipes() {
+    const search = document.getElementById('search').value.toLowerCase();
+    const cuisine = document.getElementById('filter-cuisine').value;
+    const diet = document.getElementById('filter-diet').value;
+
+    const filtered = allRecipes.filter(r => {
+      const matchSearch = !search || r.title.toLowerCase().includes(search);
+      const matchCuisine = !cuisine || r.cuisine === cuisine;
+      const matchDiet = !diet || r.diet === diet;
+      return matchSearch && matchCuisine && matchDiet;
+    });
+
+    renderRecipes(filtered);
+  }
+
+  function renderRecipes(recipes) {
+    const grid = document.getElementById('recipe-grid');
+    const count = document.getElementById('recipe-count');
+
+    count.textContent = `${recipes.length} recipe${recipes.length === 1 ? '' : 's'}`;
+
+    if (!recipes.length) {
+      grid.innerHTML = `
+        <div class="empty-state" style="grid-column:1/-1">
+          <div class="emoji">🍳</div>
+          <p>no recipes yet — add your first one!</p>
+        </div>`;
+      return;
+    }
+
+    grid.innerHTML = recipes.map(r => `
+      <div class="recipe-card" onclick="viewRecipe('${r.id}')">
+        <div class="card-img">${r.imageUrl
+          ? `<img src="${r.imageUrl}" style="width:100%;height:100%;object-fit:cover;" onerror="this.parentElement.innerHTML='🍽'"/>`
+          : recipeMoji(r.cuisine)}</div>
+        <div class="card-body">
+          <div class="card-title">${esc(r.title)}</div>
+          <div class="card-meta">
+            ${r.cuisine ? `<span class="badge cuisine">${r.cuisine}</span>` : ''}
+            ${r.diet ? `<span class="badge diet">${r.diet}</span>` : ''}
+            ${r.time ? `<span class="badge time">⏱ ${r.time} min</span>` : ''}
+            ${r.servings ? `<span class="badge">🍴 ${r.servings}</span>` : ''}
+          </div>
+        </div>
+      </div>
+    `).join('');
+  }
+
+  function viewRecipe(id) {
+    window.location.href = `recipe.html?id=${id}`;
+  }
+
+  function recipeMoji(cuisine) {
+    const map = { Italian: '🍝', Mexican: '🌮', Asian: '🍜', Mediterranean: '🥙', American: '🍔', Indian: '🍛' };
+    return map[cuisine] || '🍽';
+  }
+
+  function esc(str) {
+    return (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function toast(msg) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    setTimeout(() => el.classList.remove('show'), 2000);
+  }
+
+  loadRecipes();
+</script>
+</body>
+</html>

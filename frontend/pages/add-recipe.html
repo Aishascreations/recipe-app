@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Add Recipe — Recipely</title>
+  <link rel="stylesheet" href="../css/style.css" />
+</head>
+<body>
+
+<div class="app-layout">
+  <nav class="navbar">
+    <span class="nav-logo">🍽 recipely</span>
+    <div class="nav-links">
+      <span class="nav-link" onclick="go('dashboard.html')">my recipes</span>
+      <span class="nav-link active" onclick="go('add-recipe.html')">+ add recipe</span>
+      <span class="nav-link" onclick="go('ai.html')">✨ AI suggest</span>
+      <span class="nav-user" id="nav-user"></span>
+      <button class="btn-secondary" onclick="logout()">logout</button>
+    </div>
+  </nav>
+
+  <div class="main">
+    <h1 class="page-title">add a recipe</h1>
+    <p class="page-sub">fill in the details below</p>
+
+    <div class="form-wrap">
+      <div class="form-row">
+        <div class="form-group">
+          <label>title *</label>
+          <input type="text" id="title" placeholder="e.g. Spaghetti Carbonara" />
+        </div>
+        <div class="form-group">
+          <label>image url</label>
+          <input type="text" id="imageUrl" placeholder="https://..." />
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>cuisine</label>
+          <select id="cuisine">
+            <option value="">select cuisine</option>
+            <option>Italian</option>
+            <option>Mexican</option>
+            <option>Asian</option>
+            <option>Mediterranean</option>
+            <option>American</option>
+            <option>Indian</option>
+            <option>Other</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>diet</label>
+          <select id="diet">
+            <option value="">select diet</option>
+            <option>vegetarian</option>
+            <option>vegan</option>
+            <option>gluten-free</option>
+            <option>dairy-free</option>
+            <option>keto</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>cook time (minutes)</label>
+          <input type="number" id="time" placeholder="30" min="0" />
+        </div>
+        <div class="form-group">
+          <label>servings</label>
+          <input type="number" id="servings" placeholder="4" min="1" />
+        </div>
+      </div>
+
+      <!-- Ingredients -->
+      <div class="form-group">
+        <label>ingredients</label>
+        <div id="ingredients-list"></div>
+        <button class="btn-secondary" onclick="addIngredient()" style="margin-top:6px;">+ add ingredient</button>
+      </div>
+
+      <!-- Steps -->
+      <div class="form-group">
+        <label>steps</label>
+        <div id="steps-list"></div>
+        <button class="btn-secondary" onclick="addStep()" style="margin-top:6px;">+ add step</button>
+      </div>
+
+      <div class="auth-error" id="form-error"></div>
+
+      <div class="form-actions">
+        <button class="btn-primary" onclick="saveRecipe()">save recipe</button>
+        <button class="btn-secondary" onclick="go('dashboard.html')">cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  const API = 'http://localhost:3001/api';
+  const token = localStorage.getItem('token');
+  if (!token) window.location.href = '../index.html';
+
+  const user = JSON.parse(localStorage.getItem('user') || '{}');
+  document.getElementById('nav-user').textContent = `hi, ${user.name || ''}`;
+
+  function go(page) { window.location.href = page; }
+  function logout() {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    window.location.href = '../index.html';
+  }
+
+  // Start with one ingredient and one step
+  addIngredient();
+  addStep();
+
+  function addIngredient(name = '', amount = '', unit = '') {
+    const list = document.getElementById('ingredients-list');
+    const row = document.createElement('div');
+    row.className = 'ingredient-row';
+    row.innerHTML = `
+      <input type="text" placeholder="ingredient" value="${name}" class="ing-name" style="flex:2;" />
+      <input type="text" placeholder="amount" value="${amount}" class="ing-amount" style="flex:1;" />
+      <input type="text" placeholder="unit" value="${unit}" class="ing-unit" style="flex:1;" />
+      <button class="btn-icon" onclick="this.parentElement.remove()">✕</button>
+    `;
+    list.appendChild(row);
+  }
+
+  function addStep(instruction = '') {
+    const list = document.getElementById('steps-list');
+    const idx = list.children.length + 1;
+    const row = document.createElement('div');
+    row.className = 'step-row';
+    row.innerHTML = `
+      <span class="step-num">${idx}</span>
+      <textarea class="step-instruction" placeholder="describe this step..." style="flex:1;">${instruction}</textarea>
+      <button class="btn-icon" onclick="this.parentElement.remove(); reNumberSteps()">✕</button>
+    `;
+    list.appendChild(row);
+  }
+
+  function reNumberSteps() {
+    document.querySelectorAll('.step-num').forEach((el, i) => el.textContent = i + 1);
+  }
+
+  function getIngredients() {
+    return [...document.querySelectorAll('.ingredient-row')].map(row => ({
+      name: row.querySelector('.ing-name').value.trim(),
+      amount: row.querySelector('.ing-amount').value.trim(),
+      unit: row.querySelector('.ing-unit').value.trim(),
+    })).filter(i => i.name);
+  }
+
+  function getSteps() {
+    return [...document.querySelectorAll('.step-instruction')].map(ta => ({
+      instruction: ta.value.trim(),
+    })).filter(s => s.instruction);
+  }
+
+  async function saveRecipe() {
+    const title = document.getElementById('title').value.trim();
+    const err = document.getElementById('form-error');
+    err.textContent = '';
+
+    if (!title) { err.textContent = 'Title is required'; return; }
+
+    const recipe = {
+      title,
+      imageUrl: document.getElementById('imageUrl').value.trim(),
+      cuisine: document.getElementById('cuisine').value,
+      diet: document.getElementById('diet').value,
+      time: parseInt(document.getElementById('time').value) || 0,
+      servings: parseInt(document.getElementById('servings').value) || 1,
+      ingredients: getIngredients(),
+      steps: getSteps(),
+    };
+
+    try {
+      const res = await fetch(`${API}/recipes`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(recipe),
+      });
+      const data = await res.json();
+      if (!res.ok) { err.textContent = data.error; return; }
+      window.location.href = `recipe.html?id=${data.id}`;
+    } catch { err.textContent = 'Failed to save. Is the server running?'; }
+  }
+
+  // Pre-fill from AI suggestion if passed via sessionStorage
+  const aiRecipe = sessionStorage.getItem('aiRecipe');
+  if (aiRecipe) {
+    const r = JSON.parse(aiRecipe);
+    sessionStorage.removeItem('aiRecipe');
+    document.getElementById('title').value = r.title || '';
+    document.getElementById('cuisine').value = r.cuisine || '';
+    document.getElementById('diet').value = r.diet || '';
+    document.getElementById('time').value = r.time || '';
+    document.getElementById('servings').value = r.servings || '';
+    document.getElementById('ingredients-list').innerHTML = '';
+    document.getElementById('steps-list').innerHTML = '';
+    (r.ingredients || []).forEach(i => addIngredient(i.name, i.amount, i.unit));
+    (r.steps || []).forEach(s => addStep(s.instruction));
+  }
+</script>
+</body>
+</html>

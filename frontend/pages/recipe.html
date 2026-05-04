@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Recipe — Recipely</title>
+  <link rel="stylesheet" href="../css/style.css" />
+</head>
+<body>
+
+<div class="app-layout">
+  <nav class="navbar">
+    <span class="nav-logo">🍽 recipely</span>
+    <div class="nav-links">
+      <span class="nav-link" onclick="go('dashboard.html')">my recipes</span>
+      <span class="nav-link" onclick="go('add-recipe.html')">+ add recipe</span>
+      <span class="nav-link" onclick="go('ai.html')">✨ AI suggest</span>
+      <span class="nav-user" id="nav-user"></span>
+      <button class="btn-secondary" onclick="logout()">logout</button>
+    </div>
+  </nav>
+
+  <div class="main">
+    <div class="detail-wrap" id="recipe-detail">
+      <div class="loading">loading recipe...</div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  const API = 'http://localhost:3001/api';
+  const token = localStorage.getItem('token');
+  if (!token) window.location.href = '../index.html';
+
+  const user = JSON.parse(localStorage.getItem('user') || '{}');
+  document.getElementById('nav-user').textContent = `hi, ${user.name || ''}`;
+
+  function go(page) { window.location.href = page; }
+  function logout() {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    window.location.href = '../index.html';
+  }
+
+  const id = new URLSearchParams(window.location.search).get('id');
+  if (!id) window.location.href = 'dashboard.html';
+
+  async function loadRecipe() {
+    try {
+      const res = await fetch(`${API}/recipes/${id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.status === 401) { logout(); return; }
+      if (!res.ok) { go('dashboard.html'); return; }
+      const recipe = await res.json();
+      renderRecipe(recipe);
+    } catch {
+      document.getElementById('recipe-detail').innerHTML =
+        '<div class="loading">⚠ could not load recipe.</div>';
+    }
+  }
+
+  function renderRecipe(r) {
+    const detail = document.getElementById('recipe-detail');
+    detail.innerHTML = `
+      <div class="detail-header">
+        ${r.imageUrl
+          ? `<img src="${r.imageUrl}" style="width:100%;height:280px;object-fit:cover;border-radius:12px;margin-bottom:1.2rem;" onerror="this.remove()"/>`
+          : `<div style="font-size:72px;margin-bottom:1rem;">${recipeMoji(r.cuisine)}</div>`}
+        <h1 class="detail-title">${esc(r.title)}</h1>
+        <div class="detail-badges">
+          ${r.cuisine ? `<span class="badge cuisine">${r.cuisine}</span>` : ''}
+          ${r.diet ? `<span class="badge diet">${r.diet}</span>` : ''}
+          ${r.time ? `<span class="badge time">⏱ ${r.time} min</span>` : ''}
+          ${r.servings ? `<span class="badge">🍴 ${r.servings} servings</span>` : ''}
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn-danger" onclick="deleteRecipe('${r.id}')">delete recipe</button>
+          <button class="btn-secondary" onclick="generateShoppingList('${r.id}')">🛒 shopping list</button>
+        </div>
+      </div>
+
+      ${r.ingredients?.length ? `
+      <div class="detail-section">
+        <h3>ingredients</h3>
+        <ul class="ingredient-list">
+          ${r.ingredients.map(i => `
+            <li>
+              <span>${esc(i.amount)} ${esc(i.unit)}</span>
+              ${esc(i.name)}
+            </li>`).join('')}
+        </ul>
+      </div>` : ''}
+
+      ${r.steps?.length ? `
+      <div class="detail-section">
+        <h3>steps</h3>
+        <ol class="step-list">
+          ${r.steps.map(s => `<li>${esc(s.instruction)}</li>`).join('')}
+        </ol>
+      </div>` : ''}
+
+      <div id="shopping-list-result"></div>
+    `;
+  }
+
+  async function deleteRecipe(id) {
+    if (!confirm('delete this recipe?')) return;
+    try {
+      await fetch(`${API}/recipes/${id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      window.location.href = 'dashboard.html';
+    } catch { toast('delete failed'); }
+  }
+
+  async function generateShoppingList(id) {
+    const btn = event.target;
+    btn.textContent = 'generating...';
+    btn.disabled = true;
+    try {
+      const res = await fetch(`${API}/ai/shopping-list`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ recipeIds: [id] }),
+      });
+      const data = await res.json();
+      if (!res.ok) { toast('failed to generate list'); return; }
+
+      const result = document.getElementById('shopping-list-result');
+      result.innerHTML = `
+        <div class="detail-section" style="margin-top:1.5rem;">
+          <h3>🛒 shopping list</h3>
+          ${data.shoppingList.map(cat => `
+            <div style="margin-bottom:1rem;">
+              <div style="font-size:13px;font-weight:600;color:var(--text2);margin-bottom:6px;">${esc(cat.category)}</div>
+              <ul style="list-style:none;padding:0;">
+                ${cat.items.map(item => `
+                  <li style="padding:5px 0;border-bottom:0.5px solid var(--border);font-size:14px;display:flex;align-items:center;gap:8px;">
+                    <input type="checkbox" style="accent-color:var(--accent);" />
+                    ${esc(item)}
+                  </li>`).join('')}
+              </ul>
+            </div>`).join('')}
+        </div>`;
+    } catch { toast('shopping list failed'); }
+    finally { btn.textContent = '🛒 shopping list'; btn.disabled = false; }
+  }
+
+  function recipeMoji(cuisine) {
+    const map = { Italian: '🍝', Mexican: '🌮', Asian: '🍜', Mediterranean: '🥙', American: '🍔', Indian: '🍛' };
+    return map[cuisine] || '🍽';
+  }
+
+  function esc(str) {
+    return (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function toast(msg) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    setTimeout(() => el.classList.remove('show'), 2000);
+  }
+
+  loadRecipe();
+</script>
+</body>
+</html>

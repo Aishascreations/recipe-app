@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Suggest — Recipely</title>
+  <link rel="stylesheet" href="../css/style.css" />
+</head>
+<body>
+
+<div class="app-layout">
+  <nav class="navbar">
+    <span class="nav-logo">🍽 recipely</span>
+    <div class="nav-links">
+      <span class="nav-link" onclick="go('dashboard.html')">my recipes</span>
+      <span class="nav-link" onclick="go('add-recipe.html')">+ add recipe</span>
+      <span class="nav-link active" onclick="go('ai.html')">✨ AI suggest</span>
+      <span class="nav-user" id="nav-user"></span>
+      <button class="btn-secondary" onclick="logout()">logout</button>
+    </div>
+  </nav>
+
+  <div class="main">
+    <div class="ai-wrap">
+      <h1 class="page-title">✨ what's in your fridge?</h1>
+      <p class="page-sub">add your ingredients and Claude will suggest recipes you can make right now</p>
+
+      <div class="fridge-input">
+        <input
+          type="text"
+          id="ingredient-input"
+          placeholder="type an ingredient and press Enter..."
+          onkeydown="if(event.key==='Enter') addIngredientTag()"
+        />
+        <button class="btn-primary" onclick="addIngredientTag()">add</button>
+      </div>
+
+      <div class="ingredient-tags" id="ingredient-tags"></div>
+
+      <button class="btn-primary" id="suggest-btn" onclick="getSuggestions()" style="width:100%;padding:11px;">
+        ✨ suggest recipes
+      </button>
+
+      <div class="ai-results" id="ai-results"></div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  const API = 'http://localhost:3001/api';
+  const token = localStorage.getItem('token');
+  if (!token) window.location.href = '../index.html';
+
+  const user = JSON.parse(localStorage.getItem('user') || '{}');
+  document.getElementById('nav-user').textContent = `hi, ${user.name || ''}`;
+
+  let ingredients = [];
+
+  function go(page) { window.location.href = page; }
+  function logout() {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    window.location.href = '../index.html';
+  }
+
+  function addIngredientTag() {
+    const input = document.getElementById('ingredient-input');
+    const val = input.value.trim().toLowerCase();
+    if (!val || ingredients.includes(val)) { input.value = ''; return; }
+    ingredients.push(val);
+    input.value = '';
+    renderTags();
+  }
+
+  function removeIngredient(val) {
+    ingredients = ingredients.filter(i => i !== val);
+    renderTags();
+  }
+
+  function renderTags() {
+    const container = document.getElementById('ingredient-tags');
+    if (!ingredients.length) {
+      container.innerHTML = '<span style="font-size:13px;color:var(--text3);">no ingredients added yet</span>';
+      return;
+    }
+    container.innerHTML = ingredients.map(i => `
+      <div class="ing-tag">
+        ${esc(i)}
+        <button onclick="removeIngredient('${i}')">✕</button>
+      </div>
+    `).join('');
+  }
+
+  async function getSuggestions() {
+    if (!ingredients.length) {
+      toast('add at least one ingredient first');
+      return;
+    }
+
+    const btn = document.getElementById('suggest-btn');
+    const results = document.getElementById('ai-results');
+    btn.textContent = '✨ thinking...';
+    btn.disabled = true;
+    results.innerHTML = '<div class="loading">Claude is thinking up recipes for you...</div>';
+
+    try {
+      const res = await fetch(`${API}/ai/suggest`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ ingredients }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) { toast(data.error || 'suggestion failed'); results.innerHTML = ''; return; }
+
+      renderSuggestions(data.recipes || []);
+    } catch {
+      toast('failed to get suggestions. is the server running?');
+      results.innerHTML = '';
+    } finally {
+      btn.textContent = '✨ suggest recipes';
+      btn.disabled = false;
+    }
+  }
+
+  function renderSuggestions(recipes) {
+    const results = document.getElementById('ai-results');
+    if (!recipes.length) {
+      results.innerHTML = '<div class="loading">no suggestions found. try different ingredients.</div>';
+      return;
+    }
+
+    results.innerHTML = `
+      <h2 style="font-size:16px;font-weight:600;color:var(--text2);margin-bottom:1rem;">
+        here's what you can make 🎉
+      </h2>
+      ${recipes.map((r, i) => `
+        <div class="ai-card">
+          <div class="ai-card-title">${esc(r.title)}</div>
+          <div class="ai-card-meta">
+            ${r.cuisine ? `<span class="badge cuisine">${esc(r.cuisine)}</span>` : ''}
+            ${r.diet ? `<span class="badge diet">${esc(r.diet)}</span>` : ''}
+            ${r.time ? `<span class="badge time">⏱ ${r.time} min</span>` : ''}
+            ${r.servings ? `<span class="badge">🍴 ${r.servings} servings</span>` : ''}
+          </div>
+
+          ${r.ingredients?.length ? `
+          <div style="margin-bottom:8px;">
+            <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:5px;">ingredients</div>
+            <div style="font-size:13px;color:var(--text2);">
+              ${r.ingredients.map(i => `${i.amount} ${i.unit} ${i.name}`).join(' · ')}
+            </div>
+          </div>` : ''}
+
+          ${r.steps?.length ? `
+          <div>
+            <div style="font-size:11px;color:var(--text3);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:5px;">steps</div>
+            <ol style="padding-left:1.2rem;font-size:13px;color:var(--text2);line-height:1.7;">
+              ${r.steps.map(s => `<li>${esc(s.instruction)}</li>`).join('')}
+            </ol>
+          </div>` : ''}
+
+          <div class="ai-card-actions">
+            <button class="btn-primary" onclick="saveToMyRecipes(${i})">+ save to my recipes</button>
+          </div>
+        </div>
+      `).join('')}
+    `;
+
+    // Store suggestions so we can save them
+    window._suggestions = recipes;
+  }
+
+  function saveToMyRecipes(idx) {
+    const recipe = window._suggestions[idx];
+    sessionStorage.setItem('aiRecipe', JSON.stringify(recipe));
+    window.location.href = 'add-recipe.html';
+  }
+
+  function esc(str) {
+    return (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  function toast(msg) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.classList.add('show');
+    setTimeout(() => el.classList.remove('show'), 2000);
+  }
+
+  // Initialize empty tags
+  renderTags();
+</script>
+</body>
+</html>
